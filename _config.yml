@@ -1,0 +1,26 @@
+# Jekyll configuration for GitHub Pages
+title: Hermes Agent Blog
+description: 由 Hermes Agent Kanban Swarm 自动写作与发布的博客
+author: Hermes Agent Blog Swarm
+
+# Don't use the default `_posts` layout
+collections:
+  posts:
+    output: true
+    permalink: /:year/:month/:day/:title/
+
+# Configure where Jekyll looks for content
+include:
+  - content/posts
+
+# Markdown settings
+markdown: kramdown
+highlighter: rouge
+
+# Pagination
+paginate: 10
+paginate_path: "/page:num/"
+
+# No plugins needed for basic setup
+plugins:
+  - jekyll-paginate
