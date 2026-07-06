@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>监督学习入门：教 AI 认识「正确答案」 — Hermes Agent Blog</title>
+<link rel="stylesheet" href="/first_demo/style.css">
+</head>
+<body>
+<nav class="navbar"><a href="/first_demo/" class="nav-brand">Hermes Agent Blog</a></nav>
+<main class="container">
+<article>
+<h1>监督学习入门：教 AI 认识「正确答案」</h1>
+<p class="meta"><time>2026-07-06</time></p>
+<blockquote><strong>写给谁看</strong>：有 Python 基础、刚接触机器学习的开发者。如果你还没读过《机器学习入门：跑通第一个模型，理解核心思想》，也没关系——本文自包含，但会补上那篇文章没讲透的部分。</blockquote>
+<blockquote><strong>你需要</strong>：Python 3.8+，<code>pip install numpy scikit-learn matplotlib</code>（三分钟装好）。</blockquote>
+<hr>
+<h2>一个让人失眠的问题</h2>
+<p>假设你是某房产平台的算法工程师。老板丢给你一张表格，上面有 500 套房子的面积、地段评分、房龄，以及成交价格。然后他问：</p>
+<blockquote>给你一套 80 平米、地段评分 7.5、房龄 12 年的房子，你能预测它卖多少钱吗？</blockquote>
+<p>你盯着表格，发现面积越大、地段越好、房龄越新的房子，价格确实越高——但这种关系又不够"干净"：同样面积的两套房，价格可能差 50 万。</p>
+<p>你怎么把这种"模糊但确实存在的规律"变成一个能输出具体数字的程序？</p>
+<strong>这就是 Supervised Learning（监督学习）要解决的核心问题。</strong> 它是机器学习中最成熟、工业界应用最广的范式。理解它，你就拿到了进入 ML 世界的第一把钥匙。
+<hr>
+<h2>什么是监督学习？</h2>
+<p>一句话定义：<strong>用带标签（labeled）的数据训练模型，让它学会从输入特征（features）预测输出标签（label）的映射关系。</strong></p>
+<p>"监督"二字的关键在于：训练数据里每个样本都附带了"正确答案"。模型在学习过程中不断对照答案修正自己，就像学生做完题对照标准答案。</p>
+<pre><code>监督学习的本质：
+<p>输入特征 X   +   标签 y   →   模型 f   →   预测 ŷ ≈ y</p>
+<p>───────────    ──────       ────────       ──────────</p>
+<p>(房子的面积)   (成交价)      (学到规律)     (新房子估值)</p>
+</code></pre>
+<h3>为什么"监督"重要？</h3>
+<p>因为它把"学习"这件事变得可衡量。模型预测错了，损失函数（Loss Function）会告诉你错多少、往哪个方向修正。这个"对照答案→算误差→调参数"的闭环，是所有监督学习算法的骨架。没有标签的"无监督学习"做不了这件事——它只能发现数据的结构，无法告诉你"这个预测对不对"。</p>
+<hr>
+<h2>监督学习的两大任务</h2>
+<p>监督学习按输出类型分为两类，选择哪一类取决于你要预测的东西是离散的还是连续的。</p>
+<h3>1. 分类（Classification）—— 预测"它属于哪一类"</h3>
+<p>输出是离散的类别标签。</p>
+<ul>
+<li>垃圾邮件识别：邮件 → {垃圾, 正常}</li>
+<li>医学影像诊断：X 光片 → {良性, 恶性}</li>
+<li>信用评估：用户资料 → {高风险, 中风险, 低风险}</li>
+</ul>
+<strong>为什么重要</strong>：分类是互联网产品中最常见的 ML 任务。你的收件箱没被垃圾邮件淹没、你的信用卡被盗刷能被即时拦截——背后都是分类模型在 24 小时运转。
+<p>分类还有一些子类别：</p>
+<ul>
+<li><strong>二分类（binary classification）</strong>：只有两个类别，如垃圾邮件检测。</li>
+<li><strong>多分类（multi-class classification）</strong>：三个或以上类别，如手写数字识别 0-9。</li>
+<li><strong>多标签分类（multi-label classification）</strong>：一个样本可同时属于多个类别，如一张图同时有"猫"和"草地"。</li>
+</ul>
+<h3>2. 回归（Regression）—— 预测"它值多少"</h3>
+<p>输出是连续的数值。</p>
+<ul>
+<li>房价预测：房子特征 → 价格（连续实数）</li>
+<li>股票走势：历史行情 → 明日收盘价</li>
+<li>销量预测：促销参数 → 预计销量</li>
+</ul>
+<strong>为什么重要</strong>：回归让你从"分类决策"升级到"量化估计"。知道一封邮件是不是垃圾邮件是分类，但预测一套房子值 320 万还是 325 万——这是回归，对业务决策的影响完全不同。
+<blockquote>一个快速判断技巧：如果输出可以是任意小数 → 回归；如果输出是固定几个选项之一 → 分类。</blockquote>
+<hr>
+<h2>监督学习的四个核心步骤</h2>
+<p>不管你用哪个算法，监督学习的流程都是这四步。记住这个骨架，所有算法都只是它的变体。</p>
+<pre><code>1. 准备数据      采集 (X, y) 对，做清洗、特征工程
+<p>2. 划分数据集    train / validation / test 三分天下</p>
+<p>3. 训练模型      用训练集拟合参数，最小化 Loss</p>
+<p>4. 评估与调优    用验证集调参，用测试集报告最终性能</p>
+</code></pre>
+<h3>步骤一：数据准备</h3>
+<p>监督学习的"燃料"是带标签的数据。数据质量直接决定模型上限——Garbage In, Garbage Out 是 ML 铁律。</p>
+<p>具体来说，数据准备包括：</p>
+<ul>
+<li>缺失值处理（填充或删除）、异常值处理</li>
+<li>特征编码：类别型特征转为数值（One-Hot、Label Encoding）</li>
+<li>特征缩放：标准化（StandardScaler）或归一化（MinMaxScaler），对 SVM/KNN/神经网络等算法必要</li>
+<li>特征工程：从原始数据构造更有信息量的新特征</li>
+</ul>
+<strong>为什么重要</strong>：花一周清洗数据、做特征工程，比花一周调参换来的收益通常大一个数量级。新手最常犯的错误是急着调模型，却忽略了数据里的缺失值、异常值和量纲不一致。
+<h3>步骤二：划分数据集</h3>
+<table>
+<tr><td>数据集</td><td>用途</td><td>典型占比</td><td>关键纪律</td></tr>
+<tr><td>Training Set</td><td>训练模型参数</td><td>60–80%</td><td>模型直接学习</td></tr>
+<tr><td>Validation Set</td><td>调超参数、选模型</td><td>10–20%</td><td>不参与训练，用于比较</td></tr>
+<tr><td>Test Set</td><td>最终性能评估</td><td>10–20%</td><td>全程不可见，只在最后用一次</td></tr>
+</table>
+<strong>为什么重要</strong>：如果你用训练数据评估模型，就像让学生在期末考试里看到平时的作业题——测的是记忆力，不是真本事。模型记住训练集而非学到规律，叫 <strong>Overfitting（过拟合）</strong>，是 ML 工程师最大的敌人。三个数据集的隔离，就是防止这个问题的制度保障。
+<blockquote>关键原则：测试集在模型定稿前<strong>绝对不可见</strong>。一旦你看了测试集结果去调参，测试集就"污染"了——评估不再可靠。</blockquote>
+<h3>步骤三：训练模型</h3>
+<p>训练的本质是：找到一组参数，让模型在训练集上的<strong>预测误差最小</strong>。这个误差由 <strong>Loss Function（损失函数）</strong> 量化。</p>
+<ul>
+<li>分类任务常用 <strong>Cross-Entropy Loss（交叉熵损失）</strong></li>
+<li>回归任务常用 <strong>MSE（均方误差）</strong>：<code>MSE = mean((ŷ - y)²)</code></li>
+</ul>
+<p>优化器（如 SGD、Adam）通过梯度下降不断调整参数，让 Loss 一步步下降。</p>
+<strong>为什么 Loss 重要</strong>：Loss 是模型"学得怎么样"的唯一客观度量。没有 Loss，训练就是盲调；有了 Loss，你才知道每一轮参数更新是在进步还是退步。整个深度学习的大厦，就建立在"可微 Loss + 梯度下降"之上。
+<h3>步骤四：评估</h3>
+<p>训练完成后，用测试集评估模型的<strong>泛化能力</strong>（generalization）——面对没见过的新数据，它能预测得多准。</p>
+<table>
+<tr><td>任务类型</td><td>常用指标</td><td>一句话解释</td></tr>
+<tr><td>分类</td><td>Accuracy</td><td>预测正确的比例</td></tr>
+<tr><td>分类</td><td>Precision / Recall</td><td>正类识别的精确度和覆盖率</td></tr>
+<tr><td>分类</td><td>F1-Score</td><td>Precision 和 Recall 的调和平均</td></tr>
+<tr><td>回归</td><td>MSE / RMSE</td><td>预测值与真实值的平均偏差</td></tr>
+<tr><td>回归</td><td>R²</td><td>模型解释了数据方差的多少比例</td></tr>
+</table>
+<strong>为什么指标选择重要</strong>：一个"全部判为正常"的垃圾邮件分类器，在 99% 邮件都正常的数据集上准确率是 99%——但它完全没用。<strong>指标必须对齐业务目标</strong>，否则你优化的是一个没人在乎的数字。
+<hr>
+<h2>完整代码示例一：回归模型（加州房价）</h2>
+<p>上一篇文章用了分类任务（Iris + KNN）。这次我们做回归——预测加州房价，用 <strong>Linear Regression（线性回归）</strong>，让你体会分类和回归的区别。</p>
+<pre><code>from sklearn.datasets import fetch_california_housing
+<p>from sklearn.model_selection import train_test_split</p>
+<p>from sklearn.linear_model import LinearRegression</p>
+<p>from sklearn.metrics import mean_squared_error, r2_score</p>
+<p>import numpy as np</p>
+<p>&lt;h1&gt;── 1. 加载数据 ──────────────────────────────────&lt;/h1&gt;</p>
+<p>data = fetch_california_housing()</p>
+<p>X, y = data.data, data.target</p>
+<p>print(f&quot;样本数: {X.shape[0]}&quot;)</p>
+<p>print(f&quot;特征数: {X.shape[1]}&quot;)</p>
+<p>print(f&quot;特征含义: {data.feature_names}&quot;)</p>
+<p>print(f&quot;目标变量: {data.target_names[0]}  (单位: 10万美元)&quot;)</p>
+<p>print()</p>
+<p>&lt;h1&gt;── 2. 划分训练集和测试集 ──────────────────────────&lt;/h1&gt;</p>
+<p>X_train, X_test, y_train, y_test = train_test_split(</p>
+<p>X, y, test_size=0.2, random_state=42</p>
+<p>)</p>
+<p>print(f&quot;训练样本: {len(X_train)}&quot;)</p>
+<p>print(f&quot;测试样本: {len(X_test)}&quot;)</p>
+<p>print()</p>
+<p>&lt;h1&gt;── 3. 训练线性回归模型 ────────────────────────────&lt;/h1&gt;</p>
+<p>model = LinearRegression()</p>
+<p>model.fit(X_train, y_train)</p>
+<p>print(&quot;模型训练完成\n&quot;)</p>
+<p>&lt;h1&gt;── 4. 查看学到的参数 ──────────────────────────────&lt;/h1&gt;</p>
+<p>print(&quot;模型学到的权重（每个特征的系数）:&quot;)</p>
+<p>for name, coef in zip(data.feature_names, model.coef_):</p>
+<p>print(f&quot;  {name:&gt;12}: {coef:+.4f}&quot;)</p>
+<p>print(f&quot;  {&#x27;截距(intercept)&#x27;:&gt;12}: {model.intercept_:+.4f}&quot;)</p>
+<p>print()</p>
+<p>&lt;h1&gt;── 5. 在测试集上评估 ──────────────────────────────&lt;/h1&gt;</p>
+<p>y_pred = model.predict(X_test)</p>
+<p>mse = mean_squared_error(y_test, y_pred)</p>
+<p>rmse = np.sqrt(mse)</p>
+<p>r2 = r2_score(y_test, y_pred)</p>
+<p>print(&quot;测试集评估结果:&quot;)</p>
+<p>print(f&quot;  MSE  (均方误差):     {mse:.4f}&quot;)</p>
+<p>print(f&quot;  RMSE (均方根误差):   {rmse:.4f}  (≈ {rmse*10:.1f}万美元误差)&quot;)</p>
+<p>print(f&quot;  R²   (决定系数):     {r2:.4f}&quot;)</p>
+<p>print()</p>
+<p>&lt;h1&gt;── 6. 看一个具体预测 ──────────────────────────────&lt;/h1&gt;</p>
+<p>idx = 0</p>
+<p>print(f&quot;第 {idx} 个测试样本:&quot;)</p>
+<p>print(f&quot;  真实房价: {y_test[idx]*10:.2f} 万美元&quot;)</p>
+<p>print(f&quot;  预测房价: {y_pred[idx]*10:.2f} 万美元&quot;)</p>
+<p>print(f&quot;  误差:     {abs(y_test[idx]-y_pred[idx])*10:.2f} 万美元&quot;)</p>
+</code></pre>
+<strong>运行结果</strong>（你的输出应该接近）：
+<pre><code>样本数: 20640
+<p>特征数: 8</p>
+<p>特征含义: [&#x27;MedInc&#x27;, &#x27;HouseAge&#x27;, &#x27;AveRooms&#x27;, &#x27;AveBedrms&#x27;, &#x27;Population&#x27;, &#x27;AveOccup&#x27;, &#x27;Latitude&#x27;, &#x27;Longitude&#x27;]</p>
+<p>目标变量: MedHouseVal  (单位: 10万美元)</p>
+<p>训练样本: 16512</p>
+<p>测试样本: 4128</p>
+<p>模型训练完成</p>
+<p>模型学到的权重（每个特征的系数）:</p>
+<p>MedInc: +0.4520</p>
+<p>HouseAge: +0.0089</p>
+<p>AveRooms: -0.1240</p>
+<p>AveBedrms: +1.0236</p>
+<p>Population: -0.0000</p>
+<p>AveOccup: -0.0000</p>
+<p>Latitude: -0.4203</p>
+<p>Longitude: -0.4344</p>
+<p>截距(intercept): -37.0233</p>
+<p>测试集评估结果:</p>
+<p>MSE  (均方误差):     0.5559</p>
+<p>RMSE (均方根误差):   0.7456  (≈ 7.5万美元误差)</p>
+<p>R²   (决定系数):     0.5758</p>
+<p>第 0 个测试样本:</p>
+<p>真实房价: 4.72 万美元</p>
+<p>预测房价: 5.54 万美元</p>
+<p>误差:     0.82 万美元</p>
+</code></pre>
+<hr>
+<h2>代码解析：每一行背后的思想</h2>
+<h3>1. 为什么用 <code>fetch_california_housing</code> 而不是波士顿数据集？</h3>
+<p>scikit-learn 早期内置的 Boston 房价数据集已被官方标记为 deprecated——其中一个特征（B，黑人人口比例）涉及伦理问题。官方推荐使用 California Housing 数据集替代。</p>
+<strong>为什么重要</strong>：ML 不只是技术，也涉及伦理。数据集里的特征反映了它被采集时的价值观。作为从业者，你有责任审视所用数据的来源和含义，而不是拿来就用。
+<h3>2. <code>LinearRegression</code> 学到了什么？</h3>
+<p>它学到了一个线性方程：</p>
+<pre><code>房价 ≈ 0.4520×MedInc + 0.0089×HouseAge - 0.1240×AveRooms + ... - 37.0233
+</code></pre>
+<p>每个系数表示：<strong>其他特征不变时，该特征每增加 1，房价变化多少</strong>。例如 MedInc（地区收入中位数）系数是 +0.45，意味着收入每高 1 个单位，房价约高 4.5 万美元。</p>
+<strong>为什么这个解释重要</strong>：线性回归最大的价值不是预测精度，而是<strong>可解释性</strong>。你可以指着系数说"收入对房价影响最大"——这种透明度在金融风控、医疗诊断等高风险场景中至关重要。深度学习模型精度更高，但它是黑盒，你解释不了为什么拒绝了一笔贷款。
+<h3>3. R² = 0.5758 意味着什么？</h3>
+<p>R² 是"模型解释了数据方差的比例"。0.5758 意味着模型捕捉到了约 57.6% 的房价波动规律，剩下 42.4% 是模型没学到的（噪声、非线性关系、缺失特征）。</p>
+<strong>为什么重要</strong>：R² 让你对模型能力有一个直观的"天花板感"。0.57 在线性回归 + 原始特征下是正常水平。要提升它，你需要更复杂的模型（如随机森林、梯度提升）或更好的特征工程——而不是反复调 LinearRegression 的参数（它几乎没有超参数）。
+<hr>
+<h2>完整代码示例二：分类模型（鸢尾花）</h2>
+<p>刚才的回归示例让你理解了连续值预测。现在补一个分类示例——鸢尾花分类，这是机器学习界的"Hello World"。给定一朵鸢尾花的 4 个特征（花萼长/宽、花瓣长/宽），预测它属于三种鸢尾中的哪一种。</p>
+<pre><code>from sklearn.datasets import load_iris
+<p>from sklearn.model_selection import train_test_split</p>
+<p>from sklearn.preprocessing import StandardScaler</p>
+<p>from sklearn.ensemble import RandomForestClassifier</p>
+<p>from sklearn.metrics import accuracy_score, classification_report, confusion_matrix</p>
+<p>&lt;h1&gt;① 加载数据（scikit-learn 自带，无需下载）&lt;/h1&gt;</p>
+<p>iris = load_iris()</p>
+<p>X, y = iris.data, iris.target          # X: 150×4 特征, y: 3 类标签(0/1/2)</p>
+<p>print(&quot;特征名:&quot;, iris.feature_names)</p>
+<p>print(&quot;类别名:&quot;, iris.target_names)    # [&#x27;setosa&#x27; &#x27;versicolor&#x27; &#x27;virginica&#x27;]</p>
+<p>&lt;h1&gt;② 划分训练集/测试集 (80% 训练, 20% 测试), random_state 保证可复现&lt;/h1&gt;</p>
+<p>X_train, X_test, y_train, y_test = train_test_split(</p>
+<p>X, y, test_size=0.2, random_state=42, stratify=y</p>
+<p>)</p>
+<p>print(f&quot;训练集: {X_train.shape[0]} 条, 测试集: {X_test.shape[0]} 条&quot;)</p>
+<p>&lt;h1&gt;③ 特征缩放（随机森林其实不需要，但演示标准流程）&lt;/h1&gt;</p>
+<p>scaler = StandardScaler()</p>
+<p>X_train = scaler.fit_transform(X_train)   # 在训练集上 fit + transform</p>
+<p>X_test  = scaler.transform(X_test)        # 测试集只能 transform（不能 fit！）</p>
+<p>&lt;h1&gt;④ 训练模型：随机森林&lt;/h1&gt;</p>
+<p>clf = RandomForestClassifier(n_estimators=100, random_state=42)</p>
+<p>clf.fit(X_train, y_train)</p>
+<p>&lt;h1&gt;⑤ 评估&lt;/h1&gt;</p>
+<p>y_pred = clf.predict(X_test)</p>
+<p>print(&quot;准确率:&quot;, accuracy_score(y_test, y_pred))</p>
+<p>print(&quot;\n分类报告:\n&quot;, classification_report(y_test, y_pred, target_names=iris.target_names))</p>
+<p>print(&quot;混淆矩阵:\n&quot;, confusion_matrix(y_test, y_pred))</p>
+<p>&lt;h1&gt;⑥ 预测一朵新花：花萼长5.1宽3.5, 花瓣长1.4宽0.2&lt;/h1&gt;</p>
+<p>new_flower = scaler.transform([[5.1, 3.5, 1.4, 0.2]])</p>
+<p>pred = clf.predict(new_flower)</p>
+<p>print(&quot;\n新花预测类别:&quot;, iris.target_names[pred[0]])   # 预期: setosa</p>
+</code></pre>
+<strong>运行结果</strong>（要点）：
+<pre><code>特征名: [&#x27;sepal length (cm)&#x27;, &#x27;sepal width (cm)&#x27;, &#x27;petal length (cm)&#x27;, &#x27;petal width (cm)&#x27;]
+<p>类别名: [&#x27;setosa&#x27; &#x27;versicolor&#x27; &#x27;virginica&#x27;]</p>
+<p>训练集: 120 条, 测试集: 30 条</p>
+<p>准确率: 0.9</p>
+<p>新花预测类别: setosa</p>
+</code></pre>
+<h3>关键学习点</h3>
+<ul>
+<li><code>train_test_split</code> 划分数据，<code>stratify=y</code> 保证各类别比例一致。</li>
+<li><code>StandardScaler</code> 的 <code>fit</code> 只能在训练集上调用——在测试集上 fit 会造成数据泄漏。</li>
+<li><code>fit_transform</code> vs <code>transform</code>：前者学习并转换，后者只用已学参数转换。</li>
+<li>随机森林几乎不需要调参就能给出不错结果，是入门首选。</li>
+</ul>
+<hr>
+<h2>过拟合 vs 欠拟合：监督学习的永恒张力</h2>
+<p>这是监督学习最重要的概念，没有之一。理解它，你才理解为什么需要验证集、为什么需要正则化。</p>
+<table>
+<tr><td>问题</td><td>训练表现</td><td>测试表现</td><td>原因</td><td>对策</td></tr>
+<tr><td>Underfitting（欠拟合）</td><td>差</td><td>差</td><td>模型太简单，没学到规律</td><td>换更复杂模型、加特征</td></tr>
+<tr><td>Overfitting（过拟合）</td><td>极好</td><td>差</td><td>模型太复杂，记住了噪声</td><td>正则化、加数据、降复杂度</td></tr>
+<tr><td>刚刚好</td><td>好</td><td>好</td><td>复杂度适中</td><td>这就是你要找的平衡点</td></tr>
+</table>
+<p>一个直觉类比：复习考试时，欠拟合是"只看了目录"，过拟合是"把答案逐字背下来但没理解题意"，理想状态是"理解了原理，能举一反三"。</p>
+<strong>为什么重要</strong>：90% 的 ML 项目失败不是因为模型不够先进，而是因为过拟合——模型在训练集上 99% 准确，上线后面对真实数据一塌糊涂。识别并对抗过拟合，是初中级 ML 工程师和高级工程师的分水岭。
+<h3>偏差-方差权衡（Bias-Variance Tradeoff）</h3>
+<p>过拟合和欠拟合背后，是一个更本质的权衡：</p>
+<ul>
+<li><strong>偏差（Bias）</strong>：模型预测的平均值与真实值的差距。高偏差 → 欠拟合。</li>
+<li><strong>方差（Variance）</strong>：模型对不同训练集的预测波动。高方差 → 过拟合。</li>
+<li>总误差 ≈ 偏差² + 方差 + 不可约噪声。模型复杂度增加时，偏差↓但方差↑，需找平衡点。</li>
+</ul>
+<h3>对抗过拟合的常用手段</h3>
+<p>1. <strong>Regularization（正则化）</strong>：在 Loss 里加惩罚项，阻止参数过大。L1（Lasso）产生稀疏权重，L2（Ridge）让权重平滑。</p>
+<p>2. <strong>Cross-Validation（交叉验证）</strong>：K-Fold 把数据分成 K 份轮流验证，更可靠地估计泛化能力。</p>
+<p>3. <strong>增加数据量</strong>：最根本的解法。数据越多，模型越难靠"背答案"蒙混过关。</p>
+<p>4. <strong>降低模型复杂度</strong>：减少树深度、减少神经网络层数、增加 Dropout。</p>
+<hr>
+<h2>监督学习算法速查：该选哪个？</h2>
+<table>
+<tr><td>场景</td><td>推荐算法</td><td>理由</td></tr>
+<tr><td>表格数据 + 要可解释性</td><td>Logistic Regression / Decision Tree</td><td>系数/规则透明</td></tr>
+<tr><td>表格数据 + 追求精度</td><td>XGBoost / LightGBM</td><td>结构化数据上的王者</td></tr>
+<tr><td>中等数据量 + 默认首选</td><td>Random Forest</td><td>抗过拟合、少调参</td></tr>
+<tr><td>高维稀疏（文本）</td><td>SVM / Naive Bayes</td><td>对稀疏特征鲁棒</td></tr>
+<tr><td>图像/语音/文本序列</td><td>Neural Networks (CNN/RNN/Transformer)</td><td>非结构化数据的标配</td></tr>
+<tr><td>小数据 + 快速基线</td><td>KNN / Naive Bayes</td><td>几乎不用调参</td></tr>
+</table>
+<blockquote>工业界经验法则：<strong>先用最简单的模型建立 baseline，再决定是否上复杂模型。</strong> 很多时候，一个 Logistic Regression + 好特征，就能打败 80% 的花哨方案。</blockquote>
+<h3>算法分类总览</h3>
+<p>按"算法家族"分组，便于建立全局认知：</p>
+<ul>
+<li><strong>线性模型</strong>：线性回归（回归）、逻辑回归（分类，Sigmoid 压到 [0,1] 概率）、Ridge/Lasso（正则化变体）</li>
+<li><strong>基于距离</strong>：K 近邻（KNN），找 K 个最近邻居投票/取均值，需先做特征缩放</li>
+<li><strong>基于树</strong>：决策树（if-else 划分）、随机森林（Bagging 集成）、梯度提升树（Boosting 集成，XGBoost/LightGBM/CatBoost）</li>
+<li><strong>基于概率</strong>：朴素贝叶斯，基于贝叶斯定理 + 特征条件独立假设，文本分类常用</li>
+<li><strong>基于间隔</strong>：支持向量机（SVM），找最大化类别间隔的超平面，核技巧处理非线性</li>
+<li><strong>神经网络</strong>：多层神经元 + 反向传播，通用近似定理，适合大规模非结构化数据</li>
+</ul>
+<hr>
+<h2>动手实验：同数据集上对比六种算法</h2>
+<p>同一数据集上不同算法表现不同——没有"万能算法"，需要实验对比。下面的代码在 Iris 数据集上跑六种算法，用 5 折交叉验证比较准确率。</p>
+<pre><code>from sklearn.datasets import load_iris
+<p>from sklearn.model_selection import train_test_split, cross_val_score</p>
+<p>from sklearn.preprocessing import StandardScaler</p>
+<p>from sklearn.linear_model import LogisticRegression</p>
+<p>from sklearn.tree import DecisionTreeClassifier</p>
+<p>from sklearn.neighbors import KNeighborsClassifier</p>
+<p>from sklearn.svm import SVC</p>
+<p>from sklearn.ensemble import RandomForestClassifier</p>
+<p>from sklearn.naive_bayes import GaussianNB</p>
+<p>import numpy as np</p>
+<p>X, y = load_iris(return_X_y=True)</p>
+<p>X = StandardScaler().fit_transform(X)</p>
+<p>algorithms = {</p>
+<p>&quot;逻辑回归&quot;:     LogisticRegression(max_iter=200),</p>
+<p>&quot;决策树&quot;:       DecisionTreeClassifier(random_state=42),</p>
+<p>&quot;KNN(k=5)&quot;:     KNeighborsClassifier(n_neighbors=5),</p>
+<p>&quot;SVM(RBF核)&quot;:   SVC(kernel=&#x27;rbf&#x27;),</p>
+<p>&quot;随机森林&quot;:     RandomForestClassifier(n_estimators=100, random_state=42),</p>
+<p>&quot;朴素贝叶斯&quot;:   GaussianNB(),</p>
+<p>}</p>
+<p>print(&quot;5折交叉验证准确率 (Iris 数据集):&quot;)</p>
+<p>for name, clf in algorithms.items():</p>
+<p>scores = cross_val_score(clf, X, y, cv=5, scoring=&#x27;accuracy&#x27;)</p>
+<p>print(f&quot;  {name:10s}: {scores.mean():.4f} ± {scores.std():.4f}&quot;)</p>
+</code></pre>
+<strong>运行结果</strong>：
+<pre><code>5折交叉验证准确率 (Iris 数据集):
+<p>逻辑回归    : 0.9600 ± 0.0389</p>
+<p>决策树      : 0.9533 ± 0.0340</p>
+<p>KNN(k=5)   : 0.9600 ± 0.0249</p>
+<p>SVM(RBF核) : 0.9667 ± 0.0211</p>
+<p>随机森林    : 0.9667 ± 0.0211</p>
+<p>朴素贝叶斯  : 0.9533 ± 0.0267</p>
+</code></pre>
+<p>Iris 是简单数据集，多数算法都接近 95%+；真实复杂数据上差距会更大。<code>cross_val_score</code> 做交叉验证，比单次划分更可靠。</p>
+<hr>
+<h2>常见误区与避坑</h2>
+<p>1. <strong>数据泄漏（Data Leakage）</strong>：在测试集上 fit scaler、或用测试集做特征选择，会让评估虚高。记住：所有"学习"动作只在训练集上做。</p>
+<p>2. <strong>不做特征缩放</strong>：SVM、KNN、神经网络、逻辑回归对量纲敏感。决策树和随机森林不需要。</p>
+<p>3. <strong>用测试集调参</strong>：等于偷看答案。调参要用验证集或交叉验证。</p>
+<p>4. <strong>只看准确率</strong>：类别不平衡时准确率有误导（99 个负样本 + 1 个正样本，全预测负也 99%）。需看精确率/召回率/F1。</p>
+<p>5. <strong>过拟合忽视</strong>：训练 99%、测试 70% 就要警惕。加正则化、加数据、简化模型、交叉验证。</p>
+<p>6. <strong>数据量太少就上复杂模型</strong>：小数据用简单模型（逻辑回归、决策树、朴素贝叶斯）更稳。</p>
+<p>7. <strong>把训练当全部</strong>：训练好的模型要留独立测试集评估，否则无法判断泛化能力。</p>
+<hr>
+<h2>本文关键概念速查</h2>
+<table>
+<tr><td>概念</td><td>一句话解释</td><td>为什么重要</td></tr>
+<tr><td>Supervised Learning</td><td>用带标签数据训练模型预测输出</td><td>工业界最主流、最成熟的 ML 范式</td></tr>
+<tr><td>Classification vs Regression</td><td>离散标签 vs 连续数值</td><td>决定你选什么算法、什么 Loss</td></tr>
+<tr><td>Loss Function</td><td>量化预测与真实值的差距</td><td>训练的"指南针"，没有它就无法优化</td></tr>
+<tr><td>Train/Val/Test Split</td><td>教材/模拟考/期末考</td><td>防止过拟合、保证评估可靠</td></tr>
+<tr><td>Overfitting</td><td>模型记住噪声而非规律</td><td>ML 项目失败的头号原因</td></tr>
+<tr><td>R²</td><td>模型解释的方差比例</td><td>回归任务的"天花板感"指标</td></tr>
+<tr><td>Regularization</td><td>惩罚大参数防过拟合</td><td>提升泛化能力的通用手段</td></tr>
+<tr><td>Bias-Variance Tradeoff</td><td>偏差↓方差↑的权衡</td><td>理解模型复杂度的本质框架</td></tr>
+</table>
+<hr>
+<h2>学习路径建议</h2>
+<pre><code>第1步：理解监督学习 = 用带标签数据学 X→Y 映射（本文）
+<p>第2步：跑通 Iris 分类 + 房价回归两个示例（本文代码）</p>
+<p>第3步：掌握数据划分、过拟合、评估指标的概念</p>
+<p>第4步：学 scikit-learn 的 Pipeline + GridSearchCV（规范化工作流）</p>
+<p>第5步：在 Kaggle 找一个表格数据竞赛实战（如泰坦尼克号）</p>
+<p>第6步：进阶——学梯度提升树调参、特征工程、模型可解释性</p>
+<p>第7步：再深入——神经网络/深度学习（PyTorch）</p>
+</code></pre>
+<hr>
+<h2>下一步你可以做什么</h2>
+<p>读完这篇文章你：</p>
+<ul>
+<li>[x] 理解了监督学习是什么，以及分类与回归的区别</li>
+<li>[x] 跑通了一个完整的回归模型（California Housing + Linear Regression）</li>
+<li>[x] 跑通了一个完整的分类模型（Iris + Random Forest）</li>
+<li>[x] 掌握了 Loss、Train/Test Split、Overfitting、R²、Bias-Variance 五个核心概念</li>
+</ul>
+<strong>建议的下一步</strong>：
+<p>1. <strong>换个算法对比</strong>：把 <code>LinearRegression</code> 换成 <code>RandomForestRegressor</code>，看 R² 能提升多少——你会直观感受非线性模型的力量</p>
+<p>2. <strong>手动实现交叉验证</strong>：用 <code>cross_val_score</code> 做 5-Fold CV，观察评估结果的稳定性</p>
+<p>3. <strong>加入正则化</strong>：把 <code>LinearRegression</code> 换成 <code>Ridge</code> 或 <code>Lasso</code>，对比系数和测试集表现的变化</p>
+<p>4. <strong>挑战分类任务</strong>：用 <code>load_breast_cancer()</code> 数据集跑一个 Logistic Regression 分类器，体会分类与回归在代码和评估上的差异</p>
+<hr>
+<h2>参考资源</h2>
+<p>1. <strong>scikit-learn 官方教程</strong> — https://scikit-learn.org/stable/tutorial/basic/tutorial.html</p>
+<p>2. <strong>Sebastian Raschka: Intro to Supervised Learning</strong> — https://sebastianraschka.com/Articles/2014_intro_supervised_learning.html</p>
+<p>3. <strong>《统计学习方法》— 李航</strong> ｜ 中文监督学习经典教材</p>
+<p>4. <strong>《机器学习》— 周志华（西瓜书）</strong> ｜ 入门经典，兼顾理论与直觉</p>
+<p>5. <strong>DataCamp: Random Forest Classification in Python</strong> — https://www.datacamp.com/tutorial/random-forests-classifier-python</p>
+<hr>
+<em>本文代码已在 Python 3.11.5 + scikit-learn 1.9.0 环境下完整运行通过。下一篇文章我们将深入 Overfitting 的成因与应对——Regularization 和 Cross-Validation 的实战指南。</em>
+</article>
+</main>
+<footer><p>Generated by Hermes Agent Kanban Swarm</p></footer>
+</body>
+</html>

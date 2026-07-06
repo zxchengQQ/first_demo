@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Agent v0.16 Kanban Swarm：多智能体协作系统深度解析 — Hermes Agent Blog</title>
+<link rel="stylesheet" href="/first_demo/style.css">
+</head>
+<body>
+<nav class="navbar"><a href="/first_demo/" class="nav-brand">Hermes Agent Blog</a></nav>
+<main class="container">
+<article>
+<h1>Hermes Agent v0.16 Kanban Swarm：多智能体协作系统深度解析</h1>
+<p class="meta"><time>2026-07-03</time></p>
+<h2>引言</h2>
+<p>单 Agent 能做的事情有天花板——复杂项目往往需要多人协作式的分工：有人调研、有人写稿、有人审核、有人发布。Hermes Agent v0.16 的 <strong>Kanban Swarm</strong> 正是为了解决这个问题而设计的。</p>
+<p>Kanban Swarm 不是一个"多 Agent 聊天的框架"，而是一个<strong>基于任务的、可审计的、有状态的多智能体协作系统</strong>。它的核心设计哲学是：</p>
+<blockquote><strong>用 Kanban 板来编排 Agent 协作，而不是用聊天消息。</strong></blockquote>
+<p>本文从架构设计、协作流程、使用方式和最佳实践四个角度，深入解析这套系统。</p>
+<hr>
+<h2>一、架构设计</h2>
+<h3>1.1 核心组件</h3>
+<p>Kanban Swarm 由以下几个核心组件构成：</p>
+<pre><code>┌──────────────┐
+<p>│   用户请求    │</p>
+<p>└──────┬───────┘</p>
+<p>▼</p>
+<p>┌──────────────┐</p>
+<p>│  Kanban 看板  │  ← SQLite 持久化，所有 Agent 共享状态</p>
+<p>└──────┬───────┘</p>
+<p>▼</p>
+<p>┌─────────────────────────────────────────┐</p>
+<p>│           Gateway Dispatcher            │</p>
+<p>│  (自动轮询 + 调度 + 生命周期管理)        │</p>
+<p>└──┬────────┬────────┬────────┬───────────┘</p>
+<p>│        │        │        │</p>
+<p>▼        ▼        ▼        ▼</p>
+<p>┌──────┐ ┌──────┐ ┌──────┐ ┌──────────┐</p>
+<p>│Worker│ │Worker│ │Verifier│Synthesizer│</p>
+<p>│   1   │ │   2  │ │       │          │</p>
+<p>└──────┘ └──────┘ └──────┘ └──────────┘</p>
+<p>并行调研    并行撰写     审核      合成终稿</p>
+</code></pre>
+<strong>关键设计决策：</strong>
+<table>
+<tr><td>决策</td><td>方案</td><td>理由</td></tr>
+<tr><td>状态存储</td><td>SQLite（Kanban DB）</td><td>各 Agent 进程完全解耦，无需共享内存</td></tr>
+<tr><td>调度方式</td><td>Gateway Dispatcher 轮询</td><td>不依赖消息队列，部署即用</td></tr>
+<tr><td>隔离性</td><td>独立 Hermes 进程 + 独立 workspace</td><td>一个 Agent 崩溃不影响其他 Agent</td></tr>
+<tr><td>审计性</td><td>所有事件持久化到看板</td><td>每一步操作都可回溯、可复现</td></tr>
+</table>
+<h3>1.2 Swarm Graph 结构</h3>
+<p>Swarm 的运行图是一个<strong>有向无环图（DAG）</strong>，典型的 Swarm v1 结构是：</p>
+<ul>
+<li><strong>Workers</strong>（并行层）：多个 Agent 同时工作，彼此独立</li>
+<li><strong>Verifier</strong>（串行门控）：所有 Worker 完成后自动触发，验证产出质量</li>
+<li><strong>Synthesizer</strong>（最终合成）：Verifier 通过后，合并所有 Worker 产出为最终交付物</li>
+</ul>
+<p>依赖关系自动由看板系统维护——Verifier 标记为 Workers 的"子节点"，Synthesizer 标记为 Verifier 的子节点。Dispatcher 检查依赖条件，仅当所有父节点完成时才 promote 子节点。</p>
+<hr>
+<h2>二、Swarm 流程详解</h2>
+<h3>2.1 创建 Swarm</h3>
+<p>通过一条命令创建完整的 Swarm 图：</p>
+<pre><code>hermes kanban --board blog swarm \
+<p>--worker &quot;researcher:调研某主题&quot; \</p>
+<p>--worker &quot;writer:撰写文章初稿&quot; \</p>
+<p>--verifier reviewer \</p>
+<p>--synthesizer publisher \</p>
+<p>&quot;任务目标描述&quot;</p>
+</code></pre>
+<p>这条命令会创建 5 个任务卡片，并自动建立依赖关系：</p>
+<table>
+<tr><td>任务</td><td>Assignee</td><td>依赖</td></tr>
+<tr><td>Root</td><td>default</td><td>—</td></tr>
+<tr><td>Worker 1</td><td>researcher</td><td>Root</td></tr>
+<tr><td>Worker 2</td><td>writer</td><td>Root</td></tr>
+<tr><td>Verifier</td><td>reviewer</td><td>Worker 1 + Worker 2</td></tr>
+<tr><td>Synthesizer</td><td>publisher</td><td>Verifier</td></tr>
+</table>
+<h3>2.2 自动调度</h3>
+<p>创建完成后，<strong>Gateway Dispatcher</strong>（内置于 Gateway 进程中）会：</p>
+<p>1. 定期轮询看板（默认每秒一次）</p>
+<p>2. 发现 <code>ready</code> 状态的 Worker 任务</p>
+<p>3. 为每个 Worker 启动独立的 Hermes 子进程（带独立 workspace）</p>
+<p>4. Worker 完成时自动检查 Verifier 的依赖是否全部满足</p>
+<p>5. 满足条件时 promote Verifier 为 <code>ready</code></p>
+<p>6. 同样的逻辑向下传递到 Synthesizer</p>
+<h3>2.3 Agent 内部工作流</h3>
+<p>每个被调度的 Agent 在执行任务时会经历：</p>
+<pre><code>1. kanban_show → 读取父任务上下文
+<p>2. 读取 sibling 输出（通过看板评论/元数据交换）</p>
+<p>3. 执行具体工作（调研、写作、审核等）</p>
+<p>4. 产出文件写入 workspace</p>
+<p>5. kanban_comment → 向根任务发布进度摘要</p>
+<p>6. kanban_complete → 标记完成</p>
+</code></pre>
+<p>Agent 之间<strong>不直接通信</strong>，所有信息交换通过 Kanban 看板（共享黑板模式）：</p>
+<ul>
+<li>父任务的 body/context</li>
+<li>已完成 sibling 的 completion metadata</li>
+<li>根任务的评论区</li>
+</ul>
+<h3>2.4 边缘场景处理</h3>
+<table>
+<tr><td>场景</td><td>处理方式</td></tr>
+<tr><td>Worker 崩溃</td><td>Dispatcher 检测到超时 → 重试（默认最多 2 次）</td></tr>
+<tr><td>单 Worker 失败</td><td>不影响其他 Worker，仅 Verifier 收到失败通知</td></tr>
+<tr><td>全部正常</td><td>Verifier 自动被 promote，流程继续</td></tr>
+<tr><td>审核不通过</td><td>Verifier 可 block 任务，要求 Worker 重做</td></tr>
+<tr><td>Workspace 清理</td><td>任务完成后自动清理 scratch workspace</td></tr>
+</table>
+<hr>
+<h2>三、实战：博客写作 Swarm</h2>
+<p>我们以博客写作为例，展示完整的 Swarm 流程。</p>
+<h3>3.1 创建任务</h3>
+<p>用户通过微信发送："写一篇关于机器学习的入门文章"→ Agent 路由：</p>
+<pre><code>hermes kanban --board blog create &quot;机器学习入门文档&quot; --assignee orchestrator
+</code></pre>
+<h3>3.2 Orchestrator 拆解</h3>
+<p>Orchestrator（当前会话）领取任务后：</p>
+<pre><code>&lt;h1&gt;创建 Swarm 图&lt;/h1&gt;
+<p>hermes kanban --board blog swarm \</p>
+<p>--worker &quot;researcher:调研 ML 基础概念、分类与常用算法&quot; \</p>
+<p>--worker &quot;writer:撰写 MLA 入门文档初稿&quot; \</p>
+<p>--verifier reviewer \</p>
+<p>--synthesizer publisher \</p>
+<p>&quot;机器学习入门文档&quot;</p>
+</code></pre>
+<h3>3.3 自动执行</h3>
+<p>Dispatcher 自动调度：</p>
+<pre><code>时间线：
+<p>T+0s   → Researcher + Writer 同时启动</p>
+<p>T+2m32s → Researcher 完成（产出 14KB 调研报告）</p>
+<p>T+2m45s → Writer 完成（产出 ~2300 字初稿，含可运行代码）</p>
+<p>T+2m50s → Verifier 自动 promote → 审核</p>
+<p>T+3m00s → Verifier 通过 → Synthesizer 启动</p>
+<p>T+5m57s → Synthesizer 完成（产出 295 行终稿 + humanizer 润色）</p>
+</code></pre>
+<h3>3.4 状态查看</h3>
+<p>用户随时可以通过以下命令查看进度：</p>
+<pre><code>hermes kanban --board blog list          # 整体看板
+<p>hermes kanban --board blog log &lt;task&gt;    # 查看某个 worker 的详细日志</p>
+<p>hermes kanban --board blog watch         # 实时事件流</p>
+</code></pre>
+<hr>
+<h2>四、最佳实践</h2>
+<h3>4.1 角色分工设计</h3>
+<table>
+<tr><td>角色</td><td>职责</td><td>建议技能</td></tr>
+<tr><td>Researcher</td><td>收集资料、整理事实、标注来源</td><td><code>web</code> 工具集</td></tr>
+<tr><td>Writer</td><td>撰写初稿、组织结构、提供代码示例</td><td><code>terminal</code>、<code>file</code></td></tr>
+<tr><td>Reviewer</td><td>技术准确性审核、结构建议、风格检查</td><td>领域知识</td></tr>
+<tr><td>Publisher/Synthesizer</td><td>合并产出、统一风格、humanizer 润色</td><td><code>humanizer</code> 技能</td></tr>
+</table>
+<h3>4.2 Skill 配置</h3>
+<p>为每个角色配置专属 skill 可以大幅提升输出质量。例如为 Synthesizer 配置 <code>humanizer</code> skill 可以自动做反 AI 语气优化。</p>
+<h3>4.3 避免的陷阱</h3>
+<ul>
+<li><strong>不要在同一 Swarm 中放太多 Worker</strong>：建议 2-3 个并行 Worker，过多会增加 Verifier 的等待时间</li>
+<li><strong>Worker 间不要有隐性依赖</strong>：Worker 应独立工作，如果需要顺序执行，应该用链式任务而不是并行 Swarm</li>
+<li><strong>Scratch workspace 是临时的</strong>：任务完成后自动清理，重要产出应在完成前同步到外部存储</li>
+</ul>
+<hr>
+<h2>五、总结</h2>
+<p>Kanban Swarm 的核心价值在于：</p>
+<p>1. <strong>可靠的任务编排</strong>：基于 SQLite 看板的 DAG 依赖系统，比基于消息的多 Agent 系统更可靠</p>
+<p>2. <strong>完全的审计追踪</strong>：每一步事件都持久化到看板，可以回溯任何一次运行</p>
+<p>3. <strong>进程级隔离</strong>：每个 Agent 运行在独立进程中，一个崩溃不影响其他</p>
+<p>4. <strong>零配置部署</strong>：无需消息队列、无需注册中心，一条命令即可启动 Swarm</p>
+<p>当前 Swarm v1 的 Worker 全部并行执行，未来可以支持更复杂的 DAG 拓扑（链式、条件分支、循环）。但即使只有 v1 的能力，对于博客写作、文档生成、代码审查等典型场景，已经能显著提升产出效率——多个 Agent 分工协作，互不阻塞，自动流转。</p>
+<p>如果你已经在使用 Hermes Agent，尝试在下一个博客任务中启用 Kanban Swarm，感受多智能体协作的力量。</p>
+</article>
+</main>
+<footer><p>Generated by Hermes Agent Kanban Swarm</p></footer>
+</body>
+</html>

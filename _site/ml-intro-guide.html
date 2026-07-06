@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>机器学习入门：跑通第一个模型，理解核心思想 — Hermes Agent Blog</title>
+<link rel="stylesheet" href="/first_demo/style.css">
+</head>
+<body>
+<nav class="navbar"><a href="/first_demo/" class="nav-brand">Hermes Agent Blog</a></nav>
+<main class="container">
+<article>
+<h1>机器学习入门：跑通第一个模型，理解核心思想</h1>
+<p class="meta"><time>2026-07-06</time></p>
+<blockquote><strong>写给谁看</strong>：有 Python 基础但没接触过 ML 的开发者。本文带你跑通第一个模型，同时理解你在做什么、为什么这么做。</blockquote>
+<blockquote><strong>你需要</strong>：Python 3.8+，以及 <code>pip install numpy scikit-learn</code>（两条命令，等一分钟）。</blockquote>
+<hr>
+<h2>一个直觉问题</h2>
+<p>假设你收到一封邮件：</p>
+<blockquote>尊敬的客户，您的账户出现异常，请立即点击以下链接验证身份，否则您的账户将在 24 小时内被冻结。</blockquote>
+<p>正常人不到一秒钟就做出了判断——<strong>这是钓鱼邮件</strong>。你的大脑在背后完成了一次精密的 pattern recognition：发件地址可疑、语气制造紧迫感、诱导点击——这些特征组合在一起，触发了你的"危险"标签。</p>
+<strong>机器学习要做的，就是用算法替人脑干这活。</strong> 区别在于，人类靠直觉，机器靠数据。
+<p>这就是入门机器学习最好的起点——你已经在做这件事了，只是现在要教计算机也学会它。</p>
+<hr>
+<h2>什么是机器学习？</h2>
+<p>Arthur Samuel 在 1959 年给了它一个经典定义：</p>
+<blockquote><strong>Machine Learning 是让计算机在没有被明确编程的情况下，获得学习能力的研究领域。</strong></blockquote>
+<p>翻译成人话：传统编程是你告诉计算机每一步怎么做（"如果邮件包含'点击链接'→标记为危险"），而机器学习是你给计算机大量例子，让它自己总结规律。</p>
+<pre><code>传统编程：  数据 + 规则       → 答案
+<p>机器学习：  数据 + 答案       → 规则</p>
+</code></pre>
+<strong>为什么这个区别重要？</strong> 因为大多数现实问题根本没法用规则描述。你怎么写 if-else 判断一张照片里有没有猫？猫可能在左边、右边、趴着、躺着、只露出尾巴——规则数量会爆炸。ML 的方法论转变，让我们能解决那些"说不清怎么判断，但一看就知道"的问题。
+<hr>
+<h2>三大学习范式</h2>
+<p>Machine Learning 按学习方式分成三大类。理解它们的区别，决定了你选什么工具解决什么问题。</p>
+<h3>1. Supervised Learning（监督学习）</h3>
+<p>你给模型的数据已经标好了正确答案。模型的任务是学习从输入到输出的映射。</p>
+<ul>
+<li>场景：判断邮件是垃圾还是正常（标签已有）</li>
+<li>常见算法：Linear Regression、Decision Tree、K-Nearest Neighbors、Neural Networks</li>
+<li><strong>为什么重要</strong>：工业界最主流的方式。推荐系统、语音识别、医学影像诊断都基于它</li>
+</ul>
+<h3>2. Unsupervised Learning（无监督学习）</h3>
+<p>数据没有标签。模型需要自己发现数据中的结构。</p>
+<ul>
+<li>场景：电商平台对用户分群，事先不知道有几类</li>
+<li>常见算法：K-Means、DBSCAN、PCA</li>
+<li><strong>为什么重要</strong>：大量真实数据都没有标签。这是数据探索阶段的常用工具之一</li>
+</ul>
+<h3>3. Reinforcement Learning（强化学习）</h3>
+<p>模型（Agent）与环境交互，通过试错和奖励信号学习策略。</p>
+<ul>
+<li>场景：AlphaGo 下围棋、机器人学走路</li>
+<li><strong>为什么重要</strong>：AlphaGo 击败李世石、ChatGPT 的 RLHF 训练阶段——强化学习是训练高级智能的重要方法之一</li>
+</ul>
+<blockquote>本文聚焦 <strong>Supervised Learning</strong>，因为它是入门的最佳起点。后两个范式在你有基础后再探索也不迟。</blockquote>
+<hr>
+<h2>训练集与测试集</h2>
+<strong>基本原则</strong>：数据必须分成训练集（Training Set）和测试集（Test Set）。训练集用来教模型，测试集用来验证它是否真正学会了——而不是死记硬背。
+<table>
+<tr><td>数据集</td><td>用途</td><td>典型占比</td></tr>
+<tr><td>训练集</td><td>训练模型参数</td><td>~70-80%</td></tr>
+<tr><td>测试集</td><td>最终性能评估</td><td>~20-30%</td></tr>
+</table>
+<p>新手最常见的错误：用测试集调参数。这相当于让学生先看了考题再去考试——分数虚高，上线后立刻露馅。</p>
+<hr>
+<h2>完整代码示例：从数据到预测</h2>
+<p>我们使用经典的 Iris（鸢尾花）数据集。它包含 150 个样本，每个样本有 4 个特征（花萼长度、花萼宽度、花瓣长度、花瓣宽度），标签是三种鸢尾花品种之一。</p>
+<p>我们用一个简单但有效的算法——<strong>K-Nearest Neighbors（KNN）</strong>——来训练分类器。</p>
+<pre><code>from sklearn.datasets import load_iris
+<p>from sklearn.model_selection import train_test_split</p>
+<p>from sklearn.neighbors import KNeighborsClassifier</p>
+<p>from sklearn.metrics import accuracy_score</p>
+<p>&lt;h1&gt;1. 加载数据&lt;/h1&gt;</p>
+<p>iris = load_iris()</p>
+<p>X, y = iris.data, iris.target</p>
+<p>&lt;h1&gt;2. 划分训练集和测试集&lt;/h1&gt;</p>
+<p>X_train, X_test, y_train, y_test = train_test_split(</p>
+<p>X, y, test_size=0.3, random_state=42</p>
+<p>)</p>
+<p>&lt;h1&gt;3. 训练模型&lt;/h1&gt;</p>
+<p>model = KNeighborsClassifier(n_neighbors=3)</p>
+<p>model.fit(X_train, y_train)</p>
+<p>&lt;h1&gt;4. 预测&lt;/h1&gt;</p>
+<p>y_pred = model.predict(X_test)</p>
+<p>&lt;h1&gt;5. 评估&lt;/h1&gt;</p>
+<p>acc = accuracy_score(y_test, y_pred)</p>
+<p>print(f&quot;模型准确率: {acc:.2%}&quot;)</p>
+<p>print(f&quot;测试样本数: {len(y_test)}&quot;)</p>
+<p>print(f&quot;预测正确的样本数: {sum(y_pred == y_test)}&quot;)</p>
+<p>&lt;h1&gt;6. 预测一个具体样本&lt;/h1&gt;</p>
+<p>sample = X_test[0].reshape(1, -1)</p>
+<p>pred_class = model.predict(sample)[0]</p>
+<p>print(f&quot;\n单个预测示例:&quot;)</p>
+<p>print(f&quot;  预测类别: {iris.target_names[pred_class]}&quot;)</p>
+<p>print(f&quot;  实际类别: {iris.target_names[y_test[0]]}&quot;)</p>
+</code></pre>
+<p>把这 30 行代码保存为 <code>ml_first_model.py</code>，然后运行：</p>
+<pre><code>python ml_first_model.py
+</code></pre>
+<p>你会看到类似这样的输出：</p>
+<pre><code>模型准确率: 100.00%
+<p>测试样本数: 45</p>
+<p>预测正确的样本数: 45</p>
+<p>单个预测示例:</p>
+<p>预测类别: versicolor</p>
+<p>实际类别: versicolor</p>
+</code></pre>
+<strong>45 个测试样本全部猜对了。</strong> 当然，Iris 是出了名的"简单"数据集，现实项目中很少见到这么干净的 100%。
+<hr>
+<h2>代码逐行解析</h2>
+<h3>train_test_split</h3>
+<pre><code>X_train, X_test, y_train, y_test = train_test_split(
+<p>X, y, test_size=0.3, random_state=42</p>
+<p>)</p>
+</code></pre>
+<ul>
+<li><code>test_size=0.3</code>：30% 的数据留作测试集，70% 用于训练</li>
+<li><code>random_state=42</code>：随机种子。设成固定值保证每次运行拆分方式相同——方便复现结果</li>
+</ul>
+<h3>KNeighborsClassifier(n_neighbors=3)</h3>
+<p>KNN 的思路很简单：<strong>要找新样本是什么类别，就找训练集中离它最近的 K 个邻居，让邻居投票决定。</strong></p>
+<pre><code>想判断绿点的类别👇
+<p>🌸</p>
+<p>🌸       🌸  ← 最近的3个邻居全是 setosa</p>
+<p>●</p>
+<p>🌺</p>
+<p>→ 投票结果：setosa（3票全中）</p>
+</code></pre>
+<ul>
+<li>K 值小（如 K=1）→ 模型对单个样本敏感，容易 overfitting</li>
+<li>K 值大（如 K=15）→ 模型更平滑，但可能欠拟合（underfitting）</li>
+</ul>
+<strong>为什么 KNN 适合入门？</strong> 它在概念上极其直观——距离近的就是同类。推荐系统、图像检索的思路都可以追溯到"找最相似的东西"。
+<h3>fit 和 predict</h3>
+<p>这是 scikit-learn 的统一 API 模式：</p>
+<ul>
+<li><code>model.fit(X_train, y_train)</code> — 训练/学习</li>
+<li><code>model.predict(X_test)</code> — 预测</li>
+</ul>
+<p>不管你换什么算法（决策树、SVM、神经网络），<code>fit</code> 和 <code>predict</code> 的调用方式一模一样。学会一个，其他都是类似的。</p>
+<h3>accuracy_score</h3>
+<p>准确率 = 预测正确的样本数 / 总样本数。简单直观，但有个大坑：</p>
+<blockquote><strong>类别不均衡时，准确率会骗人。</strong> 如果 95% 的邮件是正常邮件，一个"全部判为正常"的傻瓜模型也有 95% 准确率。所以对不均衡数据，要看 Precision、Recall、F1-Score。</blockquote>
+<hr>
+<h2>过拟合与欠拟合</h2>
+<p>这两个概念你应该第一天就搞明白。</p>
+<strong>Overfitting（过拟合）</strong>：模型在训练集上表现极好（几乎 100%），但在新数据上一塌糊涂。原因通常是模型过于复杂，把训练数据中的噪声和偶然模式也"记住"了。
+<strong>Underfitting（欠拟合）</strong>：模型在训练集上表现就很差，说明它根本没学会数据中的规律。原因通常是模型太简单。
+<table>
+<tr><td>问题</td><td>表现</td><td>原因</td><td>怎么办</td></tr>
+<tr><td>欠拟合</td><td>训练误差高，测试误差也高</td><td>模型太简单</td><td>增加复杂度、增加特征</td></tr>
+<tr><td>过拟合</td><td>训练误差极低，测试误差高</td><td>模型太复杂，记住了噪声</td><td>正则化、更多数据、降维</td></tr>
+</table>
+<h3>Bias-Variance Tradeoff</h3>
+<ul>
+<li><strong>高 Bias</strong>（偏差）：模型假设太强，忽略了数据真实关系 → 欠拟合</li>
+<li><strong>高 Variance</strong>（方差）：模型对训练数据太敏感，换一批数据结果就大变 → 过拟合</li>
+</ul>
+<p>最优模型就是<strong>在 Bias 和 Variance 之间找到平衡点</strong>，让总误差最小。</p>
+<hr>
+<h2>常用算法速查</h2>
+<p>入门阶段不需要全部掌握它们，但知道"工具箱里有什么"总是有用的。</p>
+<table>
+<tr><td>算法</td><td>类型</td><td>一句话</td><td>适合场景</td></tr>
+<tr><td>Linear Regression</td><td>回归</td><td>用一条直线拟合数据</td><td>房价预测、趋势分析</td></tr>
+<tr><td>Logistic Regression</td><td>分类</td><td>用 S 形曲线输出概率</td><td>点击率预估、二分类</td></tr>
+<tr><td>Decision Tree</td><td>分类/回归</td><td>一系列 if-else 判断</td><td>可解释性要求高的场景</td></tr>
+<tr><td>Random Forest</td><td>分类/回归</td><td>多棵决策树投票</td><td>表格数据、特征多时</td></tr>
+<tr><td>SVM</td><td>分类</td><td>找最大间隔的决策边界</td><td>高维数据、文本分类</td></tr>
+<tr><td>KNN</td><td>分类/回归</td><td>看最近的 K 个邻居</td><td>推荐系统、模式识别</td></tr>
+<tr><td>Naive Bayes</td><td>分类</td><td>基于概率，假设特征独立</td><td>垃圾邮件过滤、文本分类</td></tr>
+<tr><td>Gradient Boosting</td><td>分类/回归</td><td>多棵树串行，每棵纠正前一棵的错误</td><td>竞赛刷分首选（XGBoost/LightGBM）</td></tr>
+</table>
+<hr>
+<h2>常见评估指标</h2>
+<table>
+<tr><td>指标</td><td>公式</td><td>什么时候用</td></tr>
+<tr><td>Accuracy</td><td>(TP+TN)/(TP+TN+FP+FN)</td><td>类别均衡时</td></tr>
+<tr><td>Precision</td><td>TP/(TP+FP)</td><td>宁缺毋滥（垃圾邮件误判成本高）</td></tr>
+<tr><td>Recall</td><td>TP/(TP+FN)</td><td>宁可错杀（癌症筛查漏诊成本高）</td></tr>
+<tr><td>F1-Score</td><td>2×P×R/(P+R)</td><td>Precision 和 Recall 的调和平均</td></tr>
+</table>
+<hr>
+<h2>概念速查表</h2>
+<table>
+<tr><td>概念</td><td>一句话解释</td><td>为什么重要</td></tr>
+<tr><td>Feature</td><td>输入的属性（如花瓣长度）</td><td>ML 的"输入"</td></tr>
+<tr><td>Label</td><td>要预测的目标（如品种）</td><td>ML 的"答案"</td></tr>
+<tr><td>Training</td><td>让模型从数据中学习参数</td><td>核心步骤</td></tr>
+<tr><td>Inference</td><td>用训练好的模型做预测</td><td>线上使用</td></tr>
+<tr><td>Overfitting</td><td>模型死记硬背，不理解</td><td>最常见的问题</td></tr>
+<tr><td>Underfitting</td><td>模型学不到位</td><td>简单模型易犯</td></tr>
+</table>
+<hr>
+<h2>现实挑战</h2>
+<p>Iris 数据集太干净了。真实世界的数据是另一回事：</p>
+<ul>
+<li>数据缺失（某列是空的）</li>
+<li>数据噪声（传感器读错了）</li>
+<li>类别分布不均衡（99% 是 A 类，1% 是 B 类）</li>
+<li>特征量纲差异巨大（年龄 0-100 vs 收入 0-1000000）</li>
+</ul>
+<p>这些才是 ML 工程师每天面对的真实挑战。基础算法只是第一步——<strong>数据质量、特征工程、模型评估</strong>才是真正决定项目效果的东西。</p>
+<hr>
+<h2>下一步</h2>
+<p>你现在已经：</p>
+<ul>
+<li>[x] 理解了 Machine Learning 是什么，以及三大学习范式的区别</li>
+<li>[x] 跑通了第一个完整的 Supervised Learning 项目（30 行代码）</li>
+<li>[x] 理解了 Train/Test Split 和 Overfitting 这两个核心概念</li>
+<li>[x] 了解了 Bias-Variance Tradeoff 和常用算法的大致格局</li>
+</ul>
+<strong>建议的下一步</strong>：
+<p>1. <strong>换数据集</strong>：去 Kaggle 找一个分类数据集（如 Titanic、Wine Quality），用同样的 KNN 代码跑一遍</p>
+<p>2. <strong>换算法</strong>：把 <code>KNeighborsClassifier</code> 换成 <code>DecisionTreeClassifier</code> 或 <code>LogisticRegression</code>，对比结果</p>
+<p>3. <strong>调参数</strong>：试试不同的 <code>n_neighbors</code> 值（1, 3, 5, 10, 20），观察准确率的变化</p>
+<p>4. <strong>学交叉验证</strong>：用 <code>cross_val_score</code> 替代单次 train/test split，得到更稳定的评估</p>
+<p>5. <strong>学更深入的概念</strong>：特征工程、正则化、梯度下降、神经网络</p>
+</article>
+</main>
+<footer><p>Generated by Hermes Agent Kanban Swarm</p></footer>
+</body>
+</html>

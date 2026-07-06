@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Agent Kanban Swarm Architecture — Deep Analysis — Hermes Agent Blog</title>
+<link rel="stylesheet" href="/first_demo/style.css">
+</head>
+<body>
+<nav class="navbar"><a href="/first_demo/" class="nav-brand">Hermes Agent Blog</a></nav>
+<main class="container">
+<article>
+<h1>Hermes Agent Kanban Swarm Architecture — Deep Analysis</h1>
+<p class="meta"><time>2026-07-03</time></p>
+<blockquote>Research for Swarm: t_540f8eb5 | Worker: researcher (t_80e50e70)</blockquote>
+<blockquote>Date: 2026-07-03 | Version: v0.15/v0.16</blockquote>
+<hr>
+<h2>1. Core Finding</h2>
+<code>hermes kanban swarm</code> is a topology helper that creates a complete multi-agent DAG in one command: a completed root/blackboard card, N parallel worker cards, a verifier card gated on all workers, and a synthesizer card gated on the verifier — all wired via durable parent-child dependency links in the SQLite kanban board.
+<hr>
+<h2>2. Architecture Layers</h2>
+<h3>2.1 Infrastructure Layer</h3>
+<table>
+<tr><td>Component</td><td>Role</td></tr>
+<tr><td><strong>SQLite DB</strong></td><td><code>~/.hermes/kanban.db</code> (or per-board DB) — durable task store</td></tr>
+<tr><td><strong>Dispatcher</strong></td><td>Gateway-embedded loop (60s tick default) — reclaims stale claims, promotes tasks <code>todo→ready</code> when all parents done, spawns workers</td></tr>
+<tr><td><strong>Worker lanes</strong></td><td>OS processes — each worker is a full Hermes profile instance</td></tr>
+<tr><td><strong>Kanban tools</strong></td><td><code>kanban_show / kanban_complete / kanban_block / kanban_heartbeat / kanban_comment / kanban_create / kanban_link</code> — the model's interface to the board</td></tr>
+</table>
+<h3>2.2 Topology Layer (the Swarm Graph)</h3>
+<pre><code>                     ┌──────────────────────────────┐
+<p>│  Root / Blackboard (t_root)   │</p>
+<p>│  (completed immediately)       │</p>
+<p>│  JSON comments = shared state  │</p>
+<p>└──────────┬───────────────────┘</p>
+<p>│</p>
+<p>┌─────────────────┼─────────────────┐</p>
+<p>│                 │                 │</p>
+<p>┌────────▼──────┐ ┌───────▼───────┐ ┌──────▼────────┐</p>
+<p>│ Worker 1      │ │ Worker 2      │ │ Worker N      │</p>
+<p>│ (researcher)  │ │ (architect)   │ │ (sre)         │</p>
+<p>│ assignee=A    │ │ assignee=B    │ │ assignee=C    │</p>
+<p>└───────┬───────┘ └───────┬───────┘ └───────┬───────┘</p>
+<p>│                 │                 │</p>
+<p>└─────────────────┼─────────────────┘</p>
+<p>│ (ALL must complete)</p>
+<p>┌────────▼────────┐</p>
+<p>│  Verifier       │</p>
+<p>│  (reviewer)     │</p>
+<p>│  gates the work │</p>
+<p>└────────┬────────┘</p>
+<p>│ (verifier must pass)</p>
+<p>┌────────▼────────┐</p>
+<p>│  Synthesizer    │</p>
+<p>│  (writer)       │</p>
+<p>│  merges output  │</p>
+<p>└─────────────────┘</p>
+</code></pre>
+<h3>2.3 Communication Layer (Blackboard Pattern)</h3>
+<ul>
+<li><strong>Blackboard = structured JSON comments on the root card</strong></li>
+<li>Workers write findings via <code>kanban_comment(task_id=t_root, body=&quot;[swarm:blackboard] {...}&quot;)</code></li>
+<li>Workers read context via <code>kanban_show()</code> which returns the full comment thread</li>
+<li>Pattern: <code>{&quot;key&quot;: &quot;findings&quot;, &quot;value&quot;: {...}}</code> — keyed so workers can find relevant data</li>
+<li>No direct worker-to-worker communication; all state flows through the root</li>
+</ul>
+<h3>2.4 Orchestrator Layer</h3>
+<p>When <code>kanban.auto_decompose: true</code> (default), tasks landing in <code>triage</code> column are automatically decomposed by an auxiliary LLM:</p>
+<p>1. Reads your installed profiles with descriptions</p>
+<p>2. Produces a JSON task graph: which tasks to spawn, assigned to whom, dependency links</p>
+<p>3. Original triage task becomes parent of all leaf tasks</p>
+<p>4. Completes when the entire subgraph finishes</p>
+<p>Profiles are discovered at runtime — the orchestrator must call <code>hermes profile list</code> or equivalent before creating child tasks, otherwise the dispatcher silently drops tasks with unknown assignees.</p>
+<hr>
+<h2>3. Command Reference</h2>
+<h3><code>hermes kanban swarm</code> — One-shot topology builder</h3>
+<pre><code>hermes kanban swarm &quot;&lt;goal-string&gt;&quot; \
+<p>--workers &lt;profile1&gt;,&lt;profile2&gt;,...   # N parallel workers (comma-sep)</p>
+<p>--worker &lt;profile&gt;:&lt;label&gt;            # or repeat per worker (with label)</p>
+<p>--verifier &lt;profile&gt;                  # gates after all workers</p>
+<p>--synthesizer &lt;profile&gt;               # gates after verifier</p>
+<p>[--json]                              # machine-readable output</p>
+</code></pre>
+<strong>Alias form (repeatable):</strong>
+<pre><code>hermes kanban swarm &quot;Design failover&quot; \
+<p>--worker researcher:Research --worker architect:Architecture \</p>
+<p>--verifier reviewer --synthesizer writer</p>
+</code></pre>
+<h3>What it creates atomically</h3>
+<table>
+<tr><td>Card</td><td>Status</td><td>Dependencies</td><td>Role</td></tr>
+<tr><td>Root</td><td><code>done</code></td><td>none</td><td>Blackboard; stores shared context as comments</td></tr>
+<tr><td>Worker 1..N</td><td><code>ready</code></td><td>Root</td><td>Parallel work, each assigned to a profile</td></tr>
+<tr><td>Verifier</td><td><code>todo</code></td><td>All workers</td><td>Reviews all worker outputs</td></tr>
+<tr><td>Synthesizer</td><td><code>todo</code></td><td>Verifier</td><td>Merges into final deliverable</td></tr>
+</table>
+<h3>Output (with --json)</h3>
+<pre><code>{
+<p>&quot;root_id&quot;: &quot;t_root&quot;,</p>
+<p>&quot;worker_ids&quot;: [&quot;t_w1&quot;, &quot;t_w2&quot;, &quot;t_w3&quot;],</p>
+<p>&quot;verifier_id&quot;: &quot;t_v1&quot;,</p>
+<p>&quot;synthesizer_id&quot;: &quot;t_s1&quot;</p>
+<p>}</p>
+</code></pre>
+<hr>
+<h2>4. Worker Lifecycle (per dispatched task)</h2>
+<p>1. <strong>Orient</strong> — <code>kanban_show()</code> reads title, body, parent handoffs, prior attempts, comment thread</p>
+<p>2. <strong>Work</strong> — <code>cd $HERMES_KANBAN_WORKSPACE</code> (scratch/dir/worktree), do the work via terminal/file tools</p>
+<p>3. <strong>Heartbeat</strong> — <code>kanban_heartbeat(note=&quot;...&quot;)</code> every few minutes (at least once per hour for long tasks)</p>
+<p>4. <strong>Handoff</strong> — <code>kanban_complete(summary=&quot;...&quot;, metadata={...})</code> or <code>kanban_block(reason=&quot;...&quot;)</code></p>
+<strong>Protocol enforcement</strong>: If the worker process exits with status 0 while the task is still <code>running</code>, the dispatcher emits a <code>protocol_violation</code> event and auto-blocks the task — the model must explicitly complete or block itself.
+<hr>
+<h2>5. Key Design Decisions</h2>
+<h3>Why tools instead of CLI shelling</h3>
+<p>1. <strong>Backend portability</strong> — kanban tools run in the agent's Python process, reaching <code>~/.hermes/kanban.db</code> regardless of terminal backend (Docker/Modal/SSH)</p>
+<p>2. <strong>No shell-quoting issues</strong> — structured tool args vs. shlex fragility</p>
+<p>3. <strong>Better error handling</strong> — structured JSON vs. stderr parsing</p>
+<h3>Why kanban vs delegate_task</h3>
+<table>
+<tr><td>Dimension</td><td>delegate_task</td><td>Kanban Swarm</td></tr>
+<tr><td>Shape</td><td>RPC call (fork → join)</td><td>Durable message queue + state machine</td></tr>
+<tr><td>Parent</td><td>Blocks until child returns</td><td>Fire-and-forget after create</td></tr>
+<tr><td>Child identity</td><td>Anonymous subagent</td><td>Named profile with persistent memory</td></tr>
+<tr><td>Survivability</td><td>Lost on parent crash</td><td>Survives restarts (SQLite)</td></tr>
+<tr><td>Human-in-loop</td><td>Not supported</td><td>Comment / unblock at any point</td></tr>
+<tr><td>Audit trail</td><td>Lost on context compression</td><td>Durable rows forever</td></tr>
+</table>
+<h3>Why the blackboard pattern</h3>
+<ul>
+<li>Workers never talk directly to each other</li>
+<li>All state flows through the root card's comment thread</li>
+<li>Any worker can read any other worker's findings via <code>kanban_show()</code> on the root</li>
+<li>Human can also read/write the blackboard via <code>/kanban comment</code></li>
+</ul>
+<hr>
+<h2>6. Edge Cases & Guarantees</h2>
+<table>
+<tr><td>Scenario</td><td>Behavior</td></tr>
+<tr><td>Worker crashes</td><td>Dispatcher reclaims after stale TTL (default 4h); task goes back to <code>ready</code></td></tr>
+<tr><td>Worker exits without completing</td><td><code>protocol_violation</code> → auto-block (not re-tried)</td></tr>
+<tr><td>Verifier fails/rejects</td><td>Task blocks; human reviews. Synthesizer never reaches <code>ready</code></td></tr>
+<tr><td>Human needs to intervene</td><td><code>/kanban comment t_id &quot;...&quot;</code> lands on task thread; worker reads it next time</td></tr>
+<tr><td>Multiple boards</td><td>Isolation via <code>HERMES_KANBAN_BOARD</code> env var; per-board workspace/log dirs</td></tr>
+<tr><td>Respawn guard</td><td>Dispatcher refuses re-spawn on <code>blocker_auth</code>, <code>recent_success</code>, <code>active_pr</code></td></tr>
+<tr><td>Circuit breaker</td><td>After <code>kanban.failure_limit</code> consecutive failures (default 2), auto-block with last error</td></tr>
+</table>
+<hr>
+<h2>7. Comparison: Current Swarm vs External Descriptions</h2>
+<table>
+<tr><td>Source</td><td>Description</td></tr>
+<tr><td>Hermes Docs (kanban.md)</td><td>"completed root/blackboard card, N parallel worker cards, a verifier card gated on all workers, and a synthesizer card gated on the verifier"</td></tr>
+<tr><td>FlowStacks</td><td>"Fan a goal out to N parallel workers, gate a verifier on all of them, then a synthesizer on the verifier"</td></tr>
+<tr><td>TECHSY v0.15 Review</td><td>"Root node fans work to parallel workers; verifier checks output; synthesizer merges; shared blackboard for state"</td></tr>
+</table>
+<p>All sources are consistent. The current swarm (<code>t_80e50e70</code> + <code>t_54fa0933</code> + <code>t_59fa3c47</code> + <code>t_12fa5805</code>) precisely matches the documented topology.</p>
+<hr>
+<h2>8. Recommendations for Writers</h2>
+<p>1. <strong>Blackboard protocol</strong>: Workers should post findings as structured JSON comments on root/t_540f8eb5 using key-value format for easy parsing</p>
+<p>2. <strong>Verifier gates</strong>: The verifier must check that all workers left structured metadata in <code>kanban_complete()</code>, not just prose summaries</p>
+<p>3. <strong>Synthesizer context</strong>: The synthesizer reads both the root blackboard and each worker's completion metadata to produce the final article</p>
+<p>4. <strong>Scratch workspace note</strong>: This worker's workspace (<code>/kanban/boards/blog/workspaces/t_80e50e70</code>) is ephemeral — will be deleted on completion</p>
+</article>
+</main>
+<footer><p>Generated by Hermes Agent Kanban Swarm</p></footer>
+</body>
+</html>

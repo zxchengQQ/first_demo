@@ -1,0 +1,4 @@
+.hermes-tmp*
+*.hermes-tmp*
+**/.hermes-tmp*
+**/system-commandline-sentinel-files*
